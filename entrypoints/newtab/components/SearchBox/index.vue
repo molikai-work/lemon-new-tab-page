@@ -18,23 +18,33 @@ import { useFocusStore, useSettingsStore } from '@/newtab/scripts/store'
 import SearchEngineMenu from './components/SearchEngineMenu.vue'
 import SearchSuggestionArea from './components/SearchSuggestionArea.vue'
 
+// 引用元素
 const searchBox = ref<HTMLDivElement>()
 const searchForm = ref<HTMLFormElement>()
 const searchInput = ref<HTMLInputElement>()
 const suggedtionArea = ref<InstanceType<typeof SearchSuggestionArea>>()
 const searchEngineMenuRef = ref<TooltipInstance>()
 
+// 搜索文本
 const searchText = ref('')
-const originSearchText = ref<string | null>(null) // 当使用上下方向键时使用，记录原始搜索文本
+const originSearchText = ref<string | null>(null) // 保存原始搜索文本，用于上下键操作
+
+// 组件状态
 const mounted = ref(false)
 
+// 状态管理
 const focusStore = useFocusStore()
 const settingsStore = useSettingsStore()
 const isWindowFocused = useWindowFocus()
 const activeElement = useActiveElement()
 
+// 获取表单宽度
 const { width: searchFormWidth } = useElementSize(searchForm)
 
+// URL 正则匹配
+const urlRegex = /^(https?:\/\/)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,6}(\/[^\s]*)?$/
+
+// 监控窗口焦点
 watch(isWindowFocused, (isFocused) => {
   if (searchText.value.length > 0 || isFocused) return
   searchText.value = ''
@@ -47,6 +57,7 @@ watch(isWindowFocused, (isFocused) => {
   focusStore.blur()
 })
 
+// 监听点击外部
 onClickOutside(searchBox, (e) => {
   if (activeElement.value?.classList.contains('search-engine-menu')) {
     searchInput.value?.focus()
@@ -64,11 +75,15 @@ onClickOutside(searchBox, (e) => {
   searchForm.value?.classList.remove('focus')
   focusStore.blur()
 })
+
+// 聚焦处理
 function handleFocus() {
   searchForm.value?.classList.add('focus')
   suggedtionArea.value!.showSearchHistories()
   focusStore.focus()
 }
+
+// 上键处理
 function handleUp() {
   if (suggedtionArea.value!.searchSuggestions.length <= 0) return
   const _current = suggedtionArea.value!.currentActiveSuggest
@@ -81,6 +96,8 @@ function handleUp() {
     suggedtionArea.value!.currentActiveSuggest = null
   } else activeOneSuggest(_current - 1)
 }
+
+// 下键处理
 function handleDown() {
   if (suggedtionArea.value!.searchSuggestions.length <= 0) return
   const _current = suggedtionArea.value!.currentActiveSuggest
@@ -93,6 +110,8 @@ function handleDown() {
     suggedtionArea.value!.currentActiveSuggest = null
   } else activeOneSuggest(_current + 1)
 }
+
+// 激活一个建议
 function activeOneSuggest(index: number) {
   const suggestions = suggedtionArea.value!.searchSuggestionArea?.children
   if (!suggestions) return
@@ -100,29 +119,41 @@ function activeOneSuggest(index: number) {
   suggedtionArea.value!.currentActiveSuggest = index
   searchText.value = suggedtionArea.value!.searchSuggestions[index]
 }
+
+// 选择搜索引擎
 function selectSearch(index: number) {
   settingsStore.search.selectedSearchEngine = index
 }
+
+// 切换到上一个搜索引擎
 function handlePrevTab() {
   if (settingsStore.search.selectedSearchEngine === 0) selectSearch(searchEngines.length - 1)
   else selectSearch(settingsStore.search.selectedSearchEngine - 1)
 }
+
+// 切换到下一个搜索引擎
 function handleNextTab() {
   if (settingsStore.search.selectedSearchEngine === searchEngines.length - 1) selectSearch(0)
   else selectSearch(settingsStore.search.selectedSearchEngine + 1)
 }
+
+// 执行搜索
 async function doSearch() {
   doSearchWithText(searchText.value)
   searchText.value = ''
 }
+
+// 执行文本搜索
 async function doSearchWithText(text: string) {
   if (text.length <= 0) {
+    // 如果没有输入内容，跳转到搜索引擎主页
     searchInput.value?.focus()
     return
   }
+
+  // 如果历史搜索功能启用，记录搜索历史
   if (settingsStore.search.recordSearchHistory) {
     const searchHistories: string[] = await searchHistoriesStorage.getValue()
-    // 判断当前搜索词是否在搜索历史里。如果在，则将其移动到最前面，如果不在，则将其添加到搜索历史
     if (searchHistories.includes(text)) {
       const index = searchHistories.indexOf(text)
       searchHistories.splice(index, 1)
@@ -130,31 +161,57 @@ async function doSearchWithText(text: string) {
     } else {
       searchHistories.unshift(text)
     }
-    // 如果历史搜索词大于15个，则删除最后几个只留下15个
+
     if (searchHistories.length > 15) {
       searchHistories.splice(15)
     }
     await searchHistoriesStorage.setValue(searchHistories)
   }
-  // 跳转搜索结果
+
+  // 根据选定的搜索引擎进行搜索
   window.open(
     searchEngines[settingsStore.search.selectedSearchEngine].url.replace('%s', text),
     settingsStore.search.searchInNewTab ? '_blank' : '_self'
   )
   suggedtionArea.value!.clearSearchSuggestions()
 }
+
+// 判断输入是否是URL或域名
+function isURLOrDomain(input: string): boolean {
+  return urlRegex.test(input)
+}
+
+// 获取翻译链接
+function getTranslateLink(text: string): string {
+  const selectedEngine = searchEngines[settingsStore.search.selectedSearchEngine]
+  if (!selectedEngine) return ''
+
+  // 生成翻译页面的URL
+  return selectedEngine.translateUrl.replace('%s', encodeURIComponent(text))
+}
+
+// 获取翻译建议
+function getTranslateSuggestion() {
+  if (isURLOrDomain(searchText.value.trim())) return null
+  const translateText = `翻译 ${searchText.value}`
+  const translateLink = getTranslateLink(searchText.value)
+  return {
+    text: translateText,
+    link: translateLink
+  }
+}
+
+// 延时组件渲染
 onMounted(() => useTimeoutFn(() => (mounted.value = true), 100))
 </script>
+
 
 <template>
   <section ref="searchBox" class="search-box">
     <form
       ref="searchForm"
       class="search-form"
-      :class="[
-        settingsStore.search.enableShadow ? 'shadow' : '',
-        settingsStore.background.bgType === 0 ? 'dark' : ''
-      ]"
+      :class="[settingsStore.search.enableShadow ? 'shadow' : '', settingsStore.background.bgType === 0 ? 'dark' : '']"
       :style="{ '--width': mounted ? '' : '0' }"
       @submit.prevent="doSearch"
     >
@@ -176,6 +233,15 @@ onMounted(() => useTimeoutFn(() => (mounted.value = true), 100))
         <el-icon @click="doSearch"><search /></el-icon>
       </div>
     </form>
+
+    <!-- 翻译建议 -->
+    <template v-if="getTranslateSuggestion()">
+      <div class="translate-suggestion">
+        <a :href="getTranslateSuggestion().link" target="_blank">{{ getTranslateSuggestion().text }}</a>
+      </div>
+    </template>
+
+    <!-- 搜索建议区域 -->
     <search-suggestion-area
       ref="suggedtionArea"
       :search-text="searchText"
@@ -185,6 +251,7 @@ onMounted(() => useTimeoutFn(() => (mounted.value = true), 100))
     />
   </section>
 </template>
+
 
 <style lang="scss" scoped>
 .search-box {
@@ -297,6 +364,22 @@ onMounted(() => useTimeoutFn(() => (mounted.value = true), 100))
       -ms-user-select: none;
       -khtml-user-select: none;
       user-select: none;
+    }
+  }
+
+  .translate-suggestion {
+    text-align: center;
+    margin-top: 10px;
+    font-size: 14px;
+    color: var(--el-text-color-regular);
+
+    a {
+      color: var(--el-color-primary);
+      text-decoration: none;
+
+      &:hover {
+        text-decoration: underline;
+      }
     }
   }
 }

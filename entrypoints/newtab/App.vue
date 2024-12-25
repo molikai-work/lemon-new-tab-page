@@ -94,7 +94,7 @@ watch(
     <main
       :style="{
         justifyContent: settingsStore.quickStart.enabled ? 'center' : '',
-        paddingTop: settingsStore.quickStart.enabled ? '' : '30vh'
+        paddingTop: settingsStore.quickStart.enabled ? '' : '14vh'
       }"
     >
       <time-now />
